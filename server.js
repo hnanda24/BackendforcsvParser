@@ -1,106 +1,73 @@
-// const express = require('express');
-// const mongoose = require('mongoose');
-// const fs = require('fs');
+const express = require('express');
+const mongoose = require('mongoose');
+const multer = require('multer');
+const path = require('path');
+const bodyParser = require('body-parser');
+const csvtojson = require('csvtojson');
+const cors = require('cors');
 
-// const app = express();
-// const PORT = 3000;
+const fs = require('fs');
+const CSVModel = require('./CSVModel');
 
-// const csvSchema = new mongoose.Schema({
-//     serialNo: String,
-//     name: String,
-// });
+const app = express();
+const PORT = 3000;
 
-// const CSVModel = mongoose.model('CSVModel', csvSchema);
+mongoose.connect('mongodb+srv://hnanda005:zkQkhtDTGowGgLKO@cluster0.spn9flj.mongodb.net/csvParser', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+})
+.then(() => {
+    console.log("Connected to MongoDB");
+})
+.catch((err) => {
+    console.error('Error connecting to MongoDB:', err);
+});
 
-// // Connect to MongoDB
-// mongoose.connect('mongodb+srv://hnanda005:zkQkhtDTGowGgLKO@cluster0.spn9flj.mongodb.net/csvParser', {
-//     useNewUrlParser: true,
-//     useUnifiedTopology: true
-// })
-// .then(() => {
-//     console.log('Connected to MongoDB');
-// })
-// .catch((err) => {
-//     console.error('Error connecting to MongoDB:', err);
-// });
+app.use(cors()); // Enable CORS for all origins
+const router = express.Router();
 
-// // Define a route to handle data insertion
-// app.get('/insert-data', (req, res) => {
-//     try {
-//         // Read the CSV file
-//         const csv = fs.readFileSync("CSV_file.csv");
+router.use(bodyParser.urlencoded({ extended: true }));
+router.use(express.static(path.resolve(process.cwd(), 'public')));
 
-//         // Convert the data to String and split it into an array
-//         const array = csv.toString().split("\r");
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.resolve(process.cwd(), 'public/uploads'));
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  },
+});
 
-//         // All the rows of the CSV will be converted to JSON objects
-//         // which will be added to result in an array
-//         let result = [];
+const upload = multer({ storage: storage });
 
-//         // The array[0] contains all the header columns so we store them in headers array
-//         let headers = array[0].split(", ");
+app.get('/get-data', async (req, res) => {
+  try {
+      const data = await CSVModel.find({}, { _id: 0, __v: 0 }); // Exclude _id and __v fields
+      res.json(data);
+  } catch (error) {
+      console.error('Error fetching data:', error);
+      res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
 
-//         // Since headers are separated, we need to traverse remaining n-1 rows.
-//         for (let i = 1; i < array.length - 1; i++) {
-//             let obj = {};
+app.post('/insert-data', upload.single('csvFile'), async (req, res) => { // Ensure 'csvFile' matches the name attribute in HTML form
+    var userData = [];
+    const response = await csvtojson().fromFile(req.file.path);
+    console.log(response);
 
-//             // Create an empty object to later add values of the current row to it
-//             let str = array[i];
-//             let s = '';
+    for (var i = 0; i < response.length; i++) {
+        userData.push({
+            name: response[i].name,
+            email: response[i].email,
+            age: response[i].age,
+          });
+        }
 
-//             // By Default, we get the comma-separated values of a cell in quotes " " 
-//             // so we use a flag to keep track of quotes and split the string accordingly
-//             let flag = 0;
-//             for (let ch of str) {
-//                 if (ch === '"' && flag === 0) {
-//                     flag = 1;
-//                 } else if (ch === '"' && flag === 1) {
-//                     flag = 0;
-//                 }
-//                 if (ch === ', ' && flag === 0) {
-//                     ch = '|';
-//                 }
-//                 if (ch !== '"') {
-//                     s += ch;
-//                 }
-//             }
+        await CSVModel.insertMany(userData);
+    
+    res.send({ status: 200, success: true, msg: 'CSV imported' });
+});
 
-//             // Split the string using pipe delimiter | and store the values in a properties array
-//             let properties = s.split("|");
-
-//             // For each header, if the value contains multiple comma-separated data,
-//             // then we store it in the form of an array otherwise directly the value is stored
-//             for (let j in headers) {
-//                 if (properties[j].includes(", ")) {
-//                     obj[headers[j]] = properties[j]
-//                         .split(", ").map(item => item.trim());
-//                 } else {
-//                     obj[headers[j]] = properties[j];
-//                 }
-//             }
-
-//             // Add the generated object to our result array
-//             result.push(obj);
-//         }
-
-//         // Save each object to the MongoDB collection
-//         result.forEach(async (data) => {
-//             try {
-//                 await CSVModel.create(data);
-//                 console.log('Data saved successfully');
-//             } catch (error) {
-//                 console.error('Error saving data:', error);
-//             }
-//         });
-
-//         res.send('Data insertion successful');
-//     } catch (error) {
-//         console.error('Error processing data:', error);
-//         res.status(500).send('Internal Server Error');
-//     }
-// });
-
-// // Start the server
-// app.listen(PORT, () => {
-//     console.log(`Server is running on http://localhost:${PORT}`);
-// });
+app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
